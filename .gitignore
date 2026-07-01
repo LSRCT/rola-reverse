@@ -1,0 +1,45 @@
+# Secrets / credentials — never commit device tokens, API keys, captured auth
+.env
+.env.*
+*.pem
+*.key
+secrets/
+credentials.json
+
+# Reverse-engineering artifacts
+*.apk
+*.dex
+decompiled/
+mitm/
+*.har
+captures/
+*.pcap
+*.pcapng
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Media / stream dumps
+*.mp4
+*.h264
+*.ts
+frames/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
