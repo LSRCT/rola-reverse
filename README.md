@@ -17,11 +17,27 @@ normal control path.
 
 ## Setup
 
+Pair the ROLA Mini with the official ROLA app first. The app is still the
+onboarding tool for Wi-Fi setup and account binding. After the robot is visible
+on the account, this SDK can control it without the phone in the normal path.
+
 Copy the example environment file and fill in local values:
 
 ```sh
 cp .env.example .env
 ```
+
+Required `.env` values today:
+
+- Enabot account credentials for an account that can access the robot.
+- A stable `ENABOT_DEVICE_ID` for the login payload.
+- `ENABOT_ROBOT_ID` for the already-paired ROLA Mini.
+- Reusable ROLA app constants used for request signing, body encryption, and
+  Agora.
+
+Robot discovery is not wired into the CLI yet, so the robot id is currently a
+manual setup value. The next ergonomic step is an `enabot robots` command that
+lists account-bound robots and allows `ENABOT_ROBOT_ID=auto`.
 
 Install sidecar dependencies once:
 
