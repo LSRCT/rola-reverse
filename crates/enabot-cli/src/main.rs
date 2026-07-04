@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use enabot_sdk::{Config, EnabotClient, MiniSession, RolaMiniControl};
 use serde_json::json;
@@ -17,7 +17,7 @@ struct Args {
     #[arg(long, default_value = "sidecars/native-rtm/index.js")]
     sidecar: PathBuf,
 
-    #[arg(long, default_value = "sidecars/rtc-snapshot/index.js")]
+    #[arg(long, default_value = "sidecars/rtc-snapshot-native-macos")]
     rtc_sidecar: PathBuf,
 }
 
@@ -395,12 +395,12 @@ fn run_rtc_snapshot_sidecar(
         "codec": args.codec,
     });
 
-    let mut child = ProcessCommand::new("node")
-        .arg(sidecar_path)
+    let mut child = snapshot_sidecar_command(sidecar_path)?
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
-        .spawn()?;
+        .spawn()
+        .with_context(|| format!("starting RTC snapshot sidecar {}", sidecar_path.display()))?;
 
     {
         let stdin = child
@@ -412,11 +412,48 @@ fn run_rtc_snapshot_sidecar(
     }
 
     let output = child.wait_with_output()?;
-    if !output.status.success() {
-        bail!("RTC snapshot sidecar failed with status {}", output.status);
-    }
     let stdout = String::from_utf8(output.stdout)?;
+    if !output.status.success() {
+        let detail = stdout.trim();
+        if detail.is_empty() {
+            bail!("RTC snapshot sidecar failed with status {}", output.status);
+        }
+        bail!(
+            "RTC snapshot sidecar failed with status {}: {}",
+            output.status,
+            detail
+        );
+    }
     serde_json::from_str(stdout.trim()).map_err(Into::into)
+}
+
+fn snapshot_sidecar_command(sidecar_path: &PathBuf) -> Result<ProcessCommand> {
+    if is_swift_package(sidecar_path)? {
+        let mut command = ProcessCommand::new("swift");
+        command
+            .arg("run")
+            .arg("--package-path")
+            .arg(sidecar_path)
+            .arg("RtcSnapshotNativeMac");
+        return Ok(command);
+    }
+
+    if sidecar_path.extension().and_then(|ext| ext.to_str()) == Some("js") {
+        let mut command = ProcessCommand::new("node");
+        command.arg(sidecar_path);
+        return Ok(command);
+    }
+
+    Ok(ProcessCommand::new(sidecar_path))
+}
+
+fn is_swift_package(path: &PathBuf) -> Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(path.join("Package.swift").is_file()),
+        Ok(_) => Ok(false),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(err).with_context(|| format!("reading {}", path.display())),
+    }
 }
 
 fn print_send_ok(action: &str) -> Result<()> {

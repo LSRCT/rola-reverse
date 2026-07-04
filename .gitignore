@@ -34,6 +34,7 @@ node_modules/
 dist/
 build/
 target/
+.build/
 
 # Media / stream dumps
 *.mp4

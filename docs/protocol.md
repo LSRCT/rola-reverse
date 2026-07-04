@@ -159,7 +159,7 @@ The practical phone-free snapshot path is:
 4. Send `102011` snapshot trigger to `mini_rtm_uid`.
 5. Join the Agora RTC channel with `app_rtc_uid`, `app_rtc_token`, and `rtc_channel`.
 6. Subscribe to the robot video publisher (`mini_rtc_uid`).
-7. Draw the current video frame to canvas and write it as JPEG/PNG.
+7. Capture the current remote video frame and write it as JPEG.
 
 Live proof:
 
@@ -168,6 +168,12 @@ Live proof:
 - Robot video publisher: numeric `mini_rtc_uid`.
 - Captured frame size observed: `2304x1296`.
 - No image bytes or download URL were observed over RTM after `102011`.
+
+The preferred implementation is the native macOS RTC sidecar. It uses Agora's
+current macOS SDK through SwiftPM, registers an `AgoraVideoFrameDelegate`, requests
+RGBA frames at `AgoraVideoFramePositionPreRenderer`, and writes the first matching
+publisher frame with ImageIO. The older Playwright/Chrome sidecar uses the same
+session fields and remains useful as a browser fallback/test oracle.
 
 The SD/media path may still exist for app-created/stored photos, but it is a
 separate reverse-engineering task. The SDK snapshot command currently treats
@@ -179,6 +185,7 @@ Working:
 
 - Agora Web RTM SDK in a browser harness.
 - Native Agora RTM SDK through a macOS arm64 native wrapper.
+- Native Agora RTC SDK through a macOS arm64 SwiftPM sidecar for snapshots.
 
 Not working for control:
 
@@ -190,4 +197,5 @@ Preferred SDK architecture:
 
 1. Rust owns Enabot login, Mini session, command modeling, retries, and public API.
 2. A small native Agora RTM sidecar handles login/publish/subscribe initially.
-3. Later, replace the sidecar with direct Rust FFI if that is worth the packaging cost.
+3. A native macOS Agora RTC sidecar handles snapshot frame capture.
+4. Later, replace sidecars with direct Rust FFI if that is worth the packaging cost.
