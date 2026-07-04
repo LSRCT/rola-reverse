@@ -33,6 +33,7 @@ env/
 node_modules/
 dist/
 build/
+target/
 
 # Media / stream dumps
 *.mp4

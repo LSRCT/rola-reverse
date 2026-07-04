@@ -16,7 +16,7 @@ That proves native Agora RTM is the right transport path for the SDK.
 
 ## Implementation Plan
 
-Start with a sidecar instead of direct Rust FFI:
+The repo now starts with a sidecar instead of direct Rust FFI:
 
 ```text
 Rust SDK -> JSON lines/stdin -> native-rtm-sidecar -> Agora RTM -> robot
@@ -41,3 +41,19 @@ Rust should own the higher-level Enabot behavior:
 
 Once this is stable, direct Rust FFI can replace the sidecar if packaging one binary
 becomes more important than keeping the integration simple.
+
+## Current Commands
+
+```sh
+npm install --prefix sidecars/native-rtm
+cargo run -p enabot-cli -- session
+cargo run -p enabot-cli -- wiggle
+```
+
+The `wiggle` command performs the full live path:
+
+1. Enabot login.
+2. Mini session request.
+3. Native RTM login.
+4. `enter_live`, forward, stop, back, stop.
+5. Collect robot replies.
