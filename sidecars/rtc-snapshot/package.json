@@ -1,0 +1,15 @@
+{
+  "name": "enabot-rtc-snapshot-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One-shot Agora RTC frame capture sidecar for Enabot snapshots",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "snapshot": "node index.js"
+  },
+  "dependencies": {
+    "agora-rtc-sdk-ng": "^4.24.5",
+    "playwright-core": "^1.61.1"
+  }
+}

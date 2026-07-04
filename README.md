@@ -22,6 +22,7 @@ lead to the current SDK architecture.
 - `crates/enabot-sdk` - Rust login/session/command/sidecar transport core.
 - `crates/enabot-cli` - Rust CLI for live control checks.
 - `sidecars/native-rtm` - JSON-lines sidecar around Agora native RTM.
+- `sidecars/rtc-snapshot` - one-shot browser sidecar that captures a JPEG from Agora RTC.
 - `src/control/enabot_login.js` - original proven login envelope replay.
 - `src/control/rola_rtm_server.js` and `src/control/rola_rtm_harness.html` - browser RTM fallback/test oracle.
 
@@ -51,6 +52,19 @@ cargo run -p enabot-cli -- turn-right --speed 40 --ms 350
 cargo run -p enabot-cli -- drive --ly 55 --rx 0 --ms 500
 cargo run -p enabot-cli -- stop
 ```
+
+Snapshot:
+
+```sh
+cd sidecars/rtc-snapshot
+npm install
+cd ../..
+cargo run -p enabot-cli -- snapshot --out artifacts/snapshots/latest.jpg
+```
+
+The snapshot command sends the `102011` RTM trigger, then joins the Mini RTC
+channel and writes the current robot video frame as a JPEG. The image is captured
+from RTC because no image bytes or download URL have been observed over RTM.
 
 ## Secrets
 

@@ -2,7 +2,9 @@ use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use enabot_sdk::{Config, EnabotClient, MiniSession, RolaMiniControl};
 use serde_json::json;
+use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command as ProcessCommand, Stdio};
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
@@ -14,6 +16,9 @@ struct Args {
 
     #[arg(long, default_value = "sidecars/native-rtm/index.js")]
     sidecar: PathBuf,
+
+    #[arg(long, default_value = "sidecars/rtc-snapshot/index.js")]
+    rtc_sidecar: PathBuf,
 }
 
 #[derive(Debug, Subcommand)]
@@ -27,6 +32,7 @@ enum Command {
     TurnLeft(TimedSpeedArgs),
     TurnRight(TimedSpeedArgs),
     Stop,
+    Snapshot(SnapshotArgs),
 }
 
 #[derive(Debug, Parser)]
@@ -50,10 +56,26 @@ struct TimedSpeedArgs {
     ms: u64,
 }
 
+#[derive(Debug, Parser)]
+struct SnapshotArgs {
+    #[arg(long, default_value = "artifacts/snapshots/latest.jpg")]
+    out: PathBuf,
+
+    #[arg(long, default_value_t = 30_000)]
+    wait_ms: u64,
+
+    #[arg(long, default_value = "rtc")]
+    rtc_mode: String,
+
+    #[arg(long, default_value = "h264")]
+    codec: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
     let sidecar = args.sidecar.clone();
+    let rtc_sidecar = args.rtc_sidecar.clone();
     let config = Config::load()?;
     let client = EnabotClient::new(config)?;
 
@@ -149,6 +171,11 @@ async fn main() -> Result<()> {
             ensure_online(&session)?;
             run_stop(&client, &sidecar, &session).await?;
         }
+        Command::Snapshot(snapshot) => {
+            let session = fresh_session(&client).await?;
+            ensure_online(&session)?;
+            run_snapshot(&client, &sidecar, &rtc_sidecar, &session, &snapshot).await?;
+        }
     }
 
     Ok(())
@@ -229,6 +256,85 @@ async fn run_stop(
     Ok(())
 }
 
+async fn run_snapshot(
+    client: &EnabotClient,
+    sidecar_path: &PathBuf,
+    rtc_sidecar_path: &PathBuf,
+    session: &MiniSession,
+    args: &SnapshotArgs,
+) -> Result<()> {
+    let mut robot = RolaMiniControl::connect(client, sidecar_path, session.clone()).await?;
+    println!(
+        "{}",
+        serde_json::to_string(&json!({"step": "rtm_login_ok"}))?
+    );
+
+    robot.enter_live().await?;
+    print_send_ok("enter_live")?;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    robot.snapshot_trigger().await?;
+    print_send_ok("snapshot_trigger")?;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let capture =
+        run_rtc_snapshot_capture_with_retries(&mut robot, rtc_sidecar_path, client, session, args)
+            .await?;
+
+    robot.collect_for(Duration::from_millis(1200)).await?;
+    let events = robot.take_events();
+    let _ = robot.logout().await;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "step": "snapshot_done",
+            "out": args.out,
+            "capture": capture,
+            "eventCount": events.len(),
+            "events": summarize_events(&events),
+        }))?
+    );
+    Ok(())
+}
+
+async fn run_rtc_snapshot_capture_with_retries(
+    robot: &mut RolaMiniControl,
+    rtc_sidecar_path: &PathBuf,
+    client: &EnabotClient,
+    session: &MiniSession,
+    args: &SnapshotArgs,
+) -> Result<serde_json::Value> {
+    let mut last_error = None;
+
+    for attempt in 0..3 {
+        if attempt > 0 {
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "step": "snapshot_capture_retry",
+                    "attempt": attempt + 1,
+                }))?
+            );
+            robot.enter_live().await?;
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            robot.snapshot_trigger().await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        match run_rtc_snapshot_sidecar(rtc_sidecar_path, client, session, args) {
+            Ok(capture) => return Ok(capture),
+            Err(err) if attempt < 2 => {
+                last_error = Some(err);
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(last_error.expect("retry loop must store an error"))
+}
+
 async fn run_drive(
     client: &EnabotClient,
     sidecar_path: &PathBuf,
@@ -270,6 +376,49 @@ async fn run_drive(
     Ok(())
 }
 
+fn run_rtc_snapshot_sidecar(
+    sidecar_path: &PathBuf,
+    client: &EnabotClient,
+    session: &MiniSession,
+    args: &SnapshotArgs,
+) -> Result<serde_json::Value> {
+    let wait_ms = checked_snapshot_wait(args.wait_ms)?;
+    let payload = json!({
+        "appId": client.config().agora_app_id,
+        "uid": session.app_rtc_uid,
+        "token": session.app_rtc_token,
+        "channel": session.rtc_channel,
+        "expectedPublisher": session.mini_rtc_uid,
+        "out": args.out,
+        "waitMs": wait_ms,
+        "mode": args.rtc_mode,
+        "codec": args.codec,
+    });
+
+    let mut child = ProcessCommand::new("node")
+        .arg(sidecar_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("RTC snapshot sidecar stdin unavailable"))?;
+        stdin.write_all(serde_json::to_string(&payload)?.as_bytes())?;
+        stdin.write_all(b"\n")?;
+    }
+
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        bail!("RTC snapshot sidecar failed with status {}", output.status);
+    }
+    let stdout = String::from_utf8(output.stdout)?;
+    serde_json::from_str(stdout.trim()).map_err(Into::into)
+}
+
 fn print_send_ok(action: &str) -> Result<()> {
     println!(
         "{}",
@@ -287,6 +436,13 @@ fn checked_duration(ms: u64) -> Result<Duration> {
         bail!("refusing to drive for more than 10000ms in one command");
     }
     Ok(Duration::from_millis(ms))
+}
+
+fn checked_snapshot_wait(ms: u64) -> Result<u64> {
+    if ms > 120_000 {
+        bail!("refusing to wait more than 120000ms for one snapshot");
+    }
+    Ok(ms)
 }
 
 fn session_summary(session: &MiniSession) -> serde_json::Value {

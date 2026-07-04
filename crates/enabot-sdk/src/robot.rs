@@ -53,6 +53,11 @@ impl RolaMiniControl {
         self.send_payload(payload).await
     }
 
+    pub async fn snapshot_trigger(&mut self) -> Result<()> {
+        let payload = commands::snapshot();
+        self.send_payload(payload).await
+    }
+
     pub async fn drive_for(&mut self, ly: i64, rx: i64, duration: Duration) -> Result<()> {
         self.drive(ly, rx).await?;
         tokio::time::sleep(duration).await;
@@ -73,8 +78,29 @@ impl RolaMiniControl {
 
     async fn send_payload(&mut self, payload: Value) -> Result<()> {
         let message = serde_json::to_string(&payload)?;
-        self.sidecar
-            .send_user_message(&self.session.mini_rtm_uid, &message)
-            .await
+        let mut last_error = None;
+
+        for attempt in 0..8 {
+            match self
+                .sidecar
+                .send_user_message(&self.session.mini_rtm_uid, &message)
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(err) if retryable_send_error(&err) && attempt < 7 => {
+                    last_error = Some(err);
+                    let _ = self.sidecar.collect_for(Duration::from_millis(750)).await;
+                    tokio::time::sleep(Duration::from_millis(750)).await;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Err(last_error.expect("retry loop must store an error"))
     }
+}
+
+fn retryable_send_error(err: &anyhow::Error) -> bool {
+    let text = format!("{err:#}").to_ascii_lowercase();
+    text.contains("-11033") || text.contains("offline")
 }

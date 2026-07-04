@@ -104,7 +104,8 @@ Known command ids:
 - `101003` - enter live/control session.
 - `101005` - heartbeat/state.
 - `101007` - movement/joystick.
-- `102011` - snapshot request, accepted but image retrieval is not solved.
+- `102011` - snapshot request. The robot accepts the trigger, but the useful
+  image path is RTC frame capture, not an RTM image response.
 
 Enter live:
 
@@ -147,6 +148,30 @@ Robot replies observed:
 - `101004` - device info/status.
 - `101006` - state acknowledgement.
 - `101026` - battery, storage, Wi-Fi/status heartbeat.
+
+## Snapshot
+
+The practical phone-free snapshot path is:
+
+1. Log in and request a fresh Mini session.
+2. Connect to RTM with `app_rtm_uid` / `app_rtm_token`.
+3. Send `101003` enter-live to `mini_rtm_uid`.
+4. Send `102011` snapshot trigger to `mini_rtm_uid`.
+5. Join the Agora RTC channel with `app_rtc_uid`, `app_rtc_token`, and `rtc_channel`.
+6. Subscribe to the robot video publisher (`mini_rtc_uid`).
+7. Draw the current video frame to canvas and write it as JPEG/PNG.
+
+Live proof:
+
+- RTC channel: `mini_us_prod_<robot_id>`.
+- App RTC uid: numeric `app_rtc_uid`.
+- Robot video publisher: numeric `mini_rtc_uid`.
+- Captured frame size observed: `2304x1296`.
+- No image bytes or download URL were observed over RTM after `102011`.
+
+The SD/media path may still exist for app-created/stored photos, but it is a
+separate reverse-engineering task. The SDK snapshot command currently treats
+`102011` as a trigger/marker and gets the file from the live RTC frame.
 
 ## Transport Findings
 

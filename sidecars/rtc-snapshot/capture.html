@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enabot RTC Snapshot Capture</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #0b0d10;
+      color: #e8edf2;
+      font: 13px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #videoSlot {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #videoSlot video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    #log {
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      max-height: 35vh;
+      overflow: hidden;
+      white-space: pre-wrap;
+      color: #d7dee7;
+      text-shadow: 0 1px 2px #000;
+    }
+  </style>
+</head>
+<body>
+  <div id="videoSlot"></div>
+  <pre id="log"></pre>
+  <script src="/agora-rtc-sdk-ng.js"></script>
+  <script>
+    const videoSlot = document.getElementById('videoSlot');
+    const logEl = document.getElementById('log');
+    const state = {
+      done: false,
+      ok: false,
+      events: [],
+    };
+    window.__rtcSnapshot = state;
+
+    function log(event, value = {}) {
+      const entry = { ts: new Date().toISOString(), event, value };
+      state.events.push(entry);
+      console.log(`${event} ${JSON.stringify(value)}`);
+      logEl.textContent += JSON.stringify(entry) + '\n';
+    }
+
+    function decodeConfig() {
+      const raw = location.hash.replace(/^#/, '');
+      if (!raw) throw new Error('missing config hash');
+      const padded = raw.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((raw.length + 3) % 4);
+      return JSON.parse(decodeURIComponent(escape(atob(padded))));
+    }
+
+    function coerceUid(uid) {
+      const numeric = Number(uid);
+      if (Number.isSafeInteger(numeric) && String(numeric) === String(uid)) return numeric;
+      return String(uid);
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function waitFor(check, timeoutMs, label) {
+      const started = Date.now();
+      while (Date.now() - started < timeoutMs) {
+        const value = check();
+        if (value) return value;
+        await sleep(100);
+      }
+      throw new Error(`timed out waiting for ${label}`);
+    }
+
+    function videoElement() {
+      return videoSlot.querySelector('video');
+    }
+
+    async function waitForVideo(timeoutMs) {
+      return waitFor(() => {
+        const video = videoElement();
+        if (!video) return null;
+        if (video.videoWidth <= 0 || video.videoHeight <= 0) return null;
+        if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return null;
+        return video;
+      }, timeoutMs, 'remote video frame');
+    }
+
+    function drawFrame(video) {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return { canvas, ctx };
+    }
+
+    function pixelStats(ctx, width, height) {
+      const sampleWidth = Math.min(width, 160);
+      const sampleHeight = Math.min(height, 90);
+      const sampleCanvas = document.createElement('canvas');
+      sampleCanvas.width = sampleWidth;
+      sampleCanvas.height = sampleHeight;
+      const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+      sampleCtx.drawImage(ctx.canvas, 0, 0, sampleWidth, sampleHeight);
+      const data = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+      let lit = 0;
+      let total = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const y = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+        total += y;
+        if (y > 5) lit += 1;
+      }
+      const pixels = data.length / 4;
+      return {
+        meanLuma: total / pixels,
+        litRatio: lit / pixels,
+        sampleWidth,
+        sampleHeight,
+      };
+    }
+
+    async function captureUsableFrame(video, cfg) {
+      const deadline = Date.now() + Math.min(Number(cfg.waitMs || 30000), 8000);
+      let last = null;
+      do {
+        const frame = drawFrame(video);
+        const stats = pixelStats(frame.ctx, frame.canvas.width, frame.canvas.height);
+        last = { frame, stats };
+        if (stats.litRatio > 0.01 || stats.meanLuma > 2) break;
+        await sleep(250);
+      } while (Date.now() < deadline);
+
+      return {
+        width: last.frame.canvas.width,
+        height: last.frame.canvas.height,
+        pixelStats: last.stats,
+        dataUrl: last.frame.canvas.toDataURL('image/jpeg', 0.92),
+      };
+    }
+
+    async function subscribeVideo(client, user, cfg) {
+      if (state.capturing || state.done) return;
+      state.capturing = true;
+
+      log('SUBSCRIBE_START', {
+        uid: user.uid,
+        expectedPublisher: cfg.expectedPublisher || null,
+        hasVideo: user.hasVideo,
+        hasAudio: user.hasAudio,
+      });
+      await client.subscribe(user, 'video');
+      log('SUBSCRIBE_OK', { uid: user.uid });
+
+      user.videoTrack.play(videoSlot);
+      const video = await waitForVideo(Number(cfg.waitMs || 30000));
+      await sleep(Number(cfg.stabilizeMs || 1200));
+      const capture = await captureUsableFrame(video, cfg);
+
+      state.ok = true;
+      state.done = true;
+      state.publisher = String(user.uid);
+      state.width = capture.width;
+      state.height = capture.height;
+      state.pixelStats = capture.pixelStats;
+      state.dataUrl = capture.dataUrl;
+      log('CAPTURE_OK', {
+        uid: user.uid,
+        width: capture.width,
+        height: capture.height,
+        pixelStats: capture.pixelStats,
+      });
+    }
+
+    async function run() {
+      const cfg = decodeConfig();
+      if (AgoraRTC.setLogLevel) AgoraRTC.setLogLevel(4);
+      log('CONFIG', {
+        channel: cfg.channel,
+        uid: cfg.uid,
+        expectedPublisher: cfg.expectedPublisher || null,
+        mode: cfg.mode,
+        codec: cfg.codec,
+      });
+
+      const client = AgoraRTC.createClient({
+        mode: cfg.mode || 'rtc',
+        codec: cfg.codec || 'h264',
+      });
+
+      client.on('connection-state-change', (curState, revState, reason) => {
+        log('CONNECTION_STATE', { curState, revState, reason });
+      });
+      client.on('user-joined', user => {
+        log('USER_JOINED', { uid: user.uid });
+      });
+      client.on('user-left', (user, reason) => {
+        log('USER_LEFT', { uid: user.uid, reason });
+        if (!state.done && state.capturing) {
+          state.done = true;
+          state.ok = false;
+          state.error = `publisher ${user.uid} left before a video frame was captured: ${reason || 'unknown'}`;
+        }
+      });
+      client.on('user-published', async (user, mediaType) => {
+        log('USER_PUBLISHED', {
+          uid: user.uid,
+          mediaType,
+          hasVideo: user.hasVideo,
+          hasAudio: user.hasAudio,
+        });
+        if (mediaType === 'video') {
+          try {
+            await subscribeVideo(client, user, cfg);
+          } catch (err) {
+            state.done = true;
+            state.ok = false;
+            state.error = err && (err.stack || err.message) || String(err);
+          }
+        }
+      });
+
+      await client.join(cfg.appId, cfg.channel, cfg.token, coerceUid(cfg.uid));
+      log('JOIN_OK', {
+        uid: cfg.uid,
+        channel: cfg.channel,
+        remoteUsers: client.remoteUsers.map(user => ({
+          uid: user.uid,
+          hasVideo: user.hasVideo,
+          hasAudio: user.hasAudio,
+        })),
+      });
+
+      const existingVideoUser = client.remoteUsers.find(user => user.hasVideo);
+      if (existingVideoUser) {
+        await subscribeVideo(client, existingVideoUser, cfg);
+      }
+
+      await waitFor(() => state.done, Number(cfg.waitMs || 30000), 'RTC snapshot completion');
+      try {
+        await client.leave();
+      } catch (err) {
+        log('LEAVE_ERROR', String(err && (err.message || err)));
+      }
+    }
+
+    run().catch(err => {
+      state.done = true;
+      state.ok = false;
+      state.error = err && (err.stack || err.message) || String(err);
+      log('ERROR', state.error);
+    });
+  </script>
+</body>
+</html>
