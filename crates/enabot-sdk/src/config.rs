@@ -1,12 +1,16 @@
 use anyhow::{Context, Result, bail};
-use std::{collections::HashMap, fs, path::Path};
+use rand::{RngCore, rngs::OsRng};
+use std::{collections::HashMap, fmt::Write as _, fs, path::Path};
+
+const LOCAL_STATE_DIR: &str = ".enabot";
+const DEVICE_ID_FILE: &str = ".enabot/device_id";
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub account: String,
     pub password: String,
     pub device_id: String,
-    pub robot_id: u64,
+    pub robot_id: Option<u64>,
     pub app_token: String,
     pub access_key_secret_s2: String,
     pub body_encrypt_key_s2: String,
@@ -25,14 +29,28 @@ impl Config {
             values.insert(key, value);
         }
 
-        let robot_id = need(&values, "ENABOT_ROBOT_ID")?
-            .parse()
-            .context("ENABOT_ROBOT_ID must be an integer")?;
+        let robot_id = optional(&values, "ENABOT_ROBOT_ID", "");
+        let robot_id = if robot_id.is_empty() {
+            None
+        } else {
+            Some(
+                robot_id
+                    .parse()
+                    .context("ENABOT_ROBOT_ID must be an integer")?,
+            )
+        };
+
+        let device_id = optional(&values, "ENABOT_DEVICE_ID", "");
+        let device_id = if device_id.is_empty() {
+            load_or_create_device_id(Path::new(DEVICE_ID_FILE))?
+        } else {
+            device_id
+        };
 
         Ok(Self {
             account: need(&values, "ENABOT_ACCOUNT")?,
             password: need(&values, "ENABOT_PASSWORD")?,
-            device_id: need(&values, "ENABOT_DEVICE_ID")?,
+            device_id,
             robot_id,
             app_token: need(&values, "ENABOT_APP_TOKEN")?,
             access_key_secret_s2: need(&values, "ENABOT_ACCESS_KEY_SECRET_S2")?,
@@ -88,4 +106,32 @@ fn parse_env_value(value: &str) -> Result<String> {
         return Ok(value[1..value.len() - 1].to_string());
     }
     Ok(value.to_string())
+}
+
+fn load_or_create_device_id(path: &Path) -> Result<String> {
+    if path.exists() {
+        let value = fs::read_to_string(path)
+            .with_context(|| format!("reading generated device id from {}", path.display()))?;
+        let value = value.trim();
+        if !value.is_empty() {
+            return Ok(value.to_string());
+        }
+    }
+
+    fs::create_dir_all(LOCAL_STATE_DIR).context("creating local Enabot state directory")?;
+    let value = generate_device_id();
+    fs::write(path, format!("{value}\n"))
+        .with_context(|| format!("writing generated device id to {}", path.display()))?;
+    Ok(value)
+}
+
+fn generate_device_id() -> String {
+    let mut bytes = [0_u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+
+    let mut out = String::with_capacity(32);
+    for byte in bytes {
+        let _ = write!(&mut out, "{byte:02x}");
+    }
+    out
 }

@@ -22,8 +22,6 @@ These values belong in local `.env`:
 
 - `ENABOT_ACCOUNT`
 - `ENABOT_PASSWORD`
-- `ENABOT_DEVICE_ID`
-- `ENABOT_ROBOT_ID`
 - `ENABOT_APP_TOKEN`
 - `ENABOT_ACCESS_KEY_SECRET_S2`
 - `ENABOT_BODY_ENCRYPT_KEY_S2`
@@ -35,6 +33,8 @@ Optional/defaulted values:
 - `ENABOT_PHONE_AREA`
 - `ENABOT_LANGUAGE`
 - `ENABOT_ACCEPT_LANGUAGE`
+- `ENABOT_DEVICE_ID` - generated in `.enabot/device_id` when unset
+- `ENABOT_ROBOT_ID` - needed for control commands; discover with `enabot robots`
 
 ## Enabot Login
 
@@ -67,7 +67,7 @@ Body:
 ```json
 {
   "require_online_status": true,
-  "robot_id": 289435
+  "robot_id": 123456
 }
 ```
 
@@ -113,9 +113,9 @@ Enter live:
 {
   "id": 101003,
   "sid": "<sid>",
-  "data": { "userId": 564693 },
+  "data": { "userId": 123456 },
   "type": 0,
-  "timestamp": 1783184123572
+  "timestamp": 1700000000000
 }
 ```
 
@@ -127,7 +127,7 @@ Movement:
   "sid": "<sid>",
   "data": { "lx": 0, "ly": 55, "rx": 0, "ry": 0, "buttons": 1 },
   "type": 0,
-  "timestamp": 1783184124586
+  "timestamp": 1700000000500
 }
 ```
 
@@ -139,7 +139,7 @@ Stop:
   "sid": "<sid>",
   "data": { "lx": 0, "ly": 0, "rx": 0, "ry": 0, "buttons": 1 },
   "type": 0,
-  "timestamp": 1783184125000
+  "timestamp": 1700000001000
 }
 ```
 

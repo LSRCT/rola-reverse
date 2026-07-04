@@ -1,33 +1,45 @@
-# enabot_claude
+# rola-reverse
 
-Phone-free control experiments for an Enabot ROLA Mini.
+Rust tooling for phone-free Enabot ROLA Mini control.
 
-## Status
+The SDK logs in to Enabot cloud, requests a fresh Mini session, and sends control
+commands through a native Agora RTM sidecar. The Android phone is not part of the
+normal control path.
 
-The useful path is now proven:
+## Layout
 
-- Enabot cloud login can be replayed from local credentials.
-- The Mini session endpoint returns fresh Agora RTM/RTC session material.
-- Basic robot control works without the phone through Agora RTM.
-- Native Agora RTM also works, so the SDK path is Rust core plus a native RTM sidecar/FFI.
-- The Rust CLI can run a live native-RTM wiggle with `cargo run -p enabot-cli -- wiggle`.
-
-The old LAN/TUTK probing and phone-assisted control paths were removed because they did not
-lead to the current SDK architecture.
-
-## Current Layout
-
-- `docs/protocol.md` - known Enabot login/session/control protocol.
-- `docs/native-transport.md` - transport decision and native RTM proof.
-- `crates/enabot-sdk` - Rust login/session/command/sidecar transport core.
-- `crates/enabot-cli` - Rust CLI for live control checks.
-- `sidecars/native-rtm` - JSON-lines sidecar around Agora native RTM.
+- `crates/enabot-sdk` - Enabot login, Mini session, command building, and sidecar transport orchestration.
+- `crates/enabot-cli` - command-line control tool.
+- `sidecars/native-rtm` - JSON-lines wrapper around Agora native RTM.
 - `sidecars/rtc-snapshot-native-macos` - default native macOS RTC sidecar that captures a JPEG from Agora RTC.
 - `sidecars/rtc-snapshot` - browser/Chrome RTC snapshot fallback.
-- `src/control/enabot_login.js` - original proven login envelope replay.
-- `src/control/rola_rtm_server.js` and `src/control/rola_rtm_harness.html` - browser RTM fallback/test oracle.
+- `docs/protocol.md` - protocol notes for login, session, and command messages.
+- `docs/native-transport.md` - notes on the native Agora sidecar approach.
+- `src/control` - older JS fallback harness kept as a known-good comparison path.
 
-## Live Check
+## Setup
+
+Pair the ROLA Mini with the official ROLA app first. The app is still the
+onboarding tool for Wi-Fi setup and account binding. After the robot is visible
+on the account, this SDK can control it without the phone in the normal path.
+
+Copy the example environment file and fill in local values:
+
+```sh
+cp .env.example .env
+```
+
+Required `.env` values today:
+
+- Enabot account credentials for an account that can access the robot.
+- Reusable ROLA app constants used for request signing, body encryption, and
+  Agora.
+
+`ENABOT_DEVICE_ID` is optional. If it is left blank, the SDK generates a stable
+local client id in `.enabot/device_id`.
+
+Run `enabot robots` after filling those values to list account-bound robot ids.
+Set `ENABOT_ROBOT_ID` to the already-paired ROLA Mini you want to control.
 
 Install sidecar dependencies once:
 
@@ -37,15 +49,17 @@ npm install
 cd ../..
 ```
 
-Then run:
+Build the Rust CLI:
 
 ```sh
-cargo run -p enabot-cli -- wiggle
+cargo build
 ```
 
-Drive commands:
+## Usage
 
 ```sh
+cargo run -p enabot-cli -- robots
+cargo run -p enabot-cli -- wiggle
 cargo run -p enabot-cli -- forward --speed 55 --ms 500
 cargo run -p enabot-cli -- backward --speed 55 --ms 500
 cargo run -p enabot-cli -- turn-left --speed 40 --ms 350
@@ -78,5 +92,5 @@ cargo run -p enabot-cli -- --rtc-sidecar sidecars/rtc-snapshot/index.js snapshot
 
 ## Secrets
 
-Copy `.env.example` to `.env` and fill in real values locally. `.env`, captures, APKs,
-tokens, cookies, and generated artifacts are gitignored.
+Never commit `.env`, captures, APKs, cookies, tokens, or extracted app secrets. The
+repo ignores those by default.
