@@ -449,12 +449,6 @@ fn snapshot_sidecar_command(sidecar_path: &PathBuf) -> Result<ProcessCommand> {
         return Ok(command);
     }
 
-    if sidecar_path.extension().and_then(|ext| ext.to_str()) == Some("js") {
-        let mut command = ProcessCommand::new("node");
-        command.arg(sidecar_path);
-        return Ok(command);
-    }
-
     Ok(ProcessCommand::new(sidecar_path))
 }
 

@@ -172,8 +172,7 @@ Live proof:
 The preferred implementation is the native macOS RTC sidecar. It uses Agora's
 current macOS SDK through SwiftPM, registers an `AgoraVideoFrameDelegate`, requests
 RGBA frames at `AgoraVideoFramePositionPreRenderer`, and writes the first matching
-publisher frame with ImageIO. The older Playwright/Chrome sidecar uses the same
-session fields and remains useful as a browser fallback/test oracle.
+publisher frame with ImageIO.
 
 The SD/media path may still exist for app-created/stored photos, but it is a
 separate reverse-engineering task. The SDK snapshot command currently treats
