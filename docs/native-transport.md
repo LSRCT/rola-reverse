@@ -48,6 +48,8 @@ becomes more important than keeping the integration simple.
 npm install --prefix sidecars/native-rtm
 cargo run -p enabot-cli -- session
 cargo run -p enabot-cli -- wiggle
+cargo run -p enabot-cli -- forward --speed 55 --ms 500
+cargo run -p enabot-cli -- turn-left --speed 40 --ms 350
 ```
 
 The `wiggle` command performs the full live path:
@@ -57,3 +59,6 @@ The `wiggle` command performs the full live path:
 3. Native RTM login.
 4. `enter_live`, forward, stop, back, stop.
 5. Collect robot replies.
+
+The directional commands use the same path but send one timed movement followed
+by `stop`.

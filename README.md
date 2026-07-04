@@ -41,6 +41,17 @@ Then run:
 cargo run -p enabot-cli -- wiggle
 ```
 
+Drive commands:
+
+```sh
+cargo run -p enabot-cli -- forward --speed 55 --ms 500
+cargo run -p enabot-cli -- backward --speed 55 --ms 500
+cargo run -p enabot-cli -- turn-left --speed 40 --ms 350
+cargo run -p enabot-cli -- turn-right --speed 40 --ms 350
+cargo run -p enabot-cli -- drive --ly 55 --rx 0 --ms 500
+cargo run -p enabot-cli -- stop
+```
+
 ## Secrets
 
 Copy `.env.example` to `.env` and fill in real values locally. `.env`, captures, APKs,

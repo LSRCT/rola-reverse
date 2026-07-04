@@ -1,8 +1,6 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use enabot_sdk::commands;
-use enabot_sdk::sidecar::NativeRtmSidecar;
-use enabot_sdk::{Config, EnabotClient, MiniSession};
+use enabot_sdk::{Config, EnabotClient, MiniSession, RolaMiniControl};
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -23,12 +21,39 @@ enum Command {
     Login,
     Session,
     Wiggle,
+    Drive(DriveArgs),
+    Forward(TimedSpeedArgs),
+    Backward(TimedSpeedArgs),
+    TurnLeft(TimedSpeedArgs),
+    TurnRight(TimedSpeedArgs),
     Stop,
+}
+
+#[derive(Debug, Parser)]
+struct DriveArgs {
+    #[arg(long)]
+    ly: i64,
+
+    #[arg(long)]
+    rx: i64,
+
+    #[arg(long, default_value_t = 500)]
+    ms: u64,
+}
+
+#[derive(Debug, Parser)]
+struct TimedSpeedArgs {
+    #[arg(long, default_value_t = 55)]
+    speed: i64,
+
+    #[arg(long, default_value_t = 500)]
+    ms: u64,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    let sidecar = args.sidecar.clone();
     let config = Config::load()?;
     let client = EnabotClient::new(config)?;
 
@@ -53,12 +78,76 @@ async fn main() -> Result<()> {
         Command::Wiggle => {
             let session = fresh_session(&client).await?;
             ensure_online(&session)?;
-            run_wiggle(&client, &args.sidecar, &session).await?;
+            run_wiggle(&client, &sidecar, &session).await?;
+        }
+        Command::Drive(drive) => {
+            let session = fresh_session(&client).await?;
+            ensure_online(&session)?;
+            run_drive(
+                &client, &sidecar, &session, drive.ly, drive.rx, drive.ms, "drive",
+            )
+            .await?;
+        }
+        Command::Forward(drive) => {
+            let session = fresh_session(&client).await?;
+            ensure_online(&session)?;
+            run_drive(
+                &client,
+                &sidecar,
+                &session,
+                speed(drive.speed),
+                0,
+                drive.ms,
+                "forward",
+            )
+            .await?;
+        }
+        Command::Backward(drive) => {
+            let session = fresh_session(&client).await?;
+            ensure_online(&session)?;
+            run_drive(
+                &client,
+                &sidecar,
+                &session,
+                -speed(drive.speed),
+                0,
+                drive.ms,
+                "backward",
+            )
+            .await?;
+        }
+        Command::TurnLeft(drive) => {
+            let session = fresh_session(&client).await?;
+            ensure_online(&session)?;
+            run_drive(
+                &client,
+                &sidecar,
+                &session,
+                0,
+                -speed(drive.speed),
+                drive.ms,
+                "turn_left",
+            )
+            .await?;
+        }
+        Command::TurnRight(drive) => {
+            let session = fresh_session(&client).await?;
+            ensure_online(&session)?;
+            run_drive(
+                &client,
+                &sidecar,
+                &session,
+                0,
+                speed(drive.speed),
+                drive.ms,
+                "turn_right",
+            )
+            .await?;
         }
         Command::Stop => {
             let session = fresh_session(&client).await?;
             ensure_online(&session)?;
-            run_stop(&client, &args.sidecar, &session).await?;
+            run_stop(&client, &sidecar, &session).await?;
         }
     }
 
@@ -77,68 +166,34 @@ fn ensure_online(session: &MiniSession) -> Result<()> {
     Ok(())
 }
 
-async fn connect_sidecar(
-    client: &EnabotClient,
-    sidecar_path: &PathBuf,
-    session: &MiniSession,
-) -> Result<NativeRtmSidecar> {
-    let mut sidecar = NativeRtmSidecar::start(sidecar_path).await?;
-    sidecar
-        .connect(
-            &client.config().agora_app_id,
-            &session.app_rtm_uid,
-            &session.app_rtm_token,
-        )
-        .await
-        .context("native RTM login failed")?;
-    Ok(sidecar)
-}
-
 async fn run_wiggle(
     client: &EnabotClient,
     sidecar_path: &PathBuf,
     session: &MiniSession,
 ) -> Result<()> {
-    let mut sidecar = connect_sidecar(client, sidecar_path, session).await?;
+    let mut robot = RolaMiniControl::connect(client, sidecar_path, session.clone()).await?;
     println!(
         "{}",
         serde_json::to_string(&json!({"step": "rtm_login_ok"}))?
     );
 
-    send_command(
-        &mut sidecar,
-        session,
-        "enter_live",
-        commands::enter_live(session)?,
-    )
-    .await?;
+    robot.enter_live().await?;
+    print_send_ok("enter_live")?;
     tokio::time::sleep(Duration::from_millis(800)).await;
 
-    send_command(
-        &mut sidecar,
-        session,
-        "nudge_forward",
-        commands::drive(session, 55, 0),
-    )
-    .await?;
-    tokio::time::sleep(Duration::from_millis(450)).await;
-
-    send_command(&mut sidecar, session, "stop", commands::stop(session)).await?;
+    robot.drive_for(55, 0, Duration::from_millis(450)).await?;
+    print_send_ok("nudge_forward")?;
+    print_send_ok("stop")?;
     tokio::time::sleep(Duration::from_millis(350)).await;
 
-    send_command(
-        &mut sidecar,
-        session,
-        "nudge_back",
-        commands::drive(session, -55, 0),
-    )
-    .await?;
-    tokio::time::sleep(Duration::from_millis(450)).await;
+    robot.drive_for(-55, 0, Duration::from_millis(450)).await?;
+    print_send_ok("nudge_back")?;
+    print_send_ok("stop")?;
+    tokio::time::sleep(Duration::from_millis(350)).await;
 
-    send_command(&mut sidecar, session, "stop", commands::stop(session)).await?;
-    sidecar.collect_for(Duration::from_millis(2500)).await?;
-    let events = sidecar.take_events();
-    let _ = sidecar.logout().await;
+    robot.collect_for(Duration::from_millis(2500)).await?;
+    let events = robot.take_events();
+    let _ = robot.logout().await;
 
     println!(
         "{}",
@@ -157,11 +212,12 @@ async fn run_stop(
     sidecar_path: &PathBuf,
     session: &MiniSession,
 ) -> Result<()> {
-    let mut sidecar = connect_sidecar(client, sidecar_path, session).await?;
-    send_command(&mut sidecar, session, "stop", commands::stop(session)).await?;
-    sidecar.collect_for(Duration::from_millis(1000)).await?;
-    let events = sidecar.take_events();
-    let _ = sidecar.logout().await;
+    let mut robot = RolaMiniControl::connect(client, sidecar_path, session.clone()).await?;
+    robot.stop().await?;
+    print_send_ok("stop")?;
+    robot.collect_for(Duration::from_millis(1000)).await?;
+    let events = robot.take_events();
+    let _ = robot.logout().await;
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
@@ -173,22 +229,64 @@ async fn run_stop(
     Ok(())
 }
 
-async fn send_command(
-    sidecar: &mut NativeRtmSidecar,
+async fn run_drive(
+    client: &EnabotClient,
+    sidecar_path: &PathBuf,
     session: &MiniSession,
+    ly: i64,
+    rx: i64,
+    ms: u64,
     action: &str,
-    payload: serde_json::Value,
 ) -> Result<()> {
-    let message = serde_json::to_string(&payload)?;
-    sidecar
-        .send_user_message(&session.mini_rtm_uid, &message)
-        .await
-        .with_context(|| format!("sending {action}"))?;
+    let duration = checked_duration(ms)?;
+    let mut robot = RolaMiniControl::connect(client, sidecar_path, session.clone()).await?;
+    println!(
+        "{}",
+        serde_json::to_string(&json!({"step": "rtm_login_ok"}))?
+    );
+    robot.enter_live().await?;
+    print_send_ok("enter_live")?;
+    tokio::time::sleep(Duration::from_millis(250)).await;
+
+    robot.drive_for(ly, rx, duration).await?;
+    print_send_ok(action)?;
+    print_send_ok("stop")?;
+
+    robot.collect_for(Duration::from_millis(1200)).await?;
+    let events = robot.take_events();
+    let _ = robot.logout().await;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "step": "drive_done",
+            "action": action,
+            "ly": ly.clamp(-100, 100),
+            "rx": rx.clamp(-100, 100),
+            "ms": duration.as_millis(),
+            "eventCount": events.len(),
+            "events": summarize_events(&events),
+        }))?
+    );
+    Ok(())
+}
+
+fn print_send_ok(action: &str) -> Result<()> {
     println!(
         "{}",
         serde_json::to_string(&json!({"step": "send_ok", "action": action}))?
     );
     Ok(())
+}
+
+fn speed(speed: i64) -> i64 {
+    speed.abs().clamp(0, 100)
+}
+
+fn checked_duration(ms: u64) -> Result<Duration> {
+    if ms > 10_000 {
+        bail!("refusing to drive for more than 10000ms in one command");
+    }
+    Ok(Duration::from_millis(ms))
 }
 
 fn session_summary(session: &MiniSession) -> serde_json::Value {
