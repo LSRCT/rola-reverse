@@ -11,6 +11,7 @@ credentials.json
 *.dex
 decompiled/
 mitm/
+artifacts/
 *.har
 captures/
 *.pcap
