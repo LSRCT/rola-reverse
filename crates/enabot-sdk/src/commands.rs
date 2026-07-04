@@ -61,3 +61,21 @@ pub fn snapshot() -> Value {
         "timestamp": now_ms(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_payload_is_trigger_only() {
+        let payload = snapshot();
+
+        assert_eq!(payload["id"], 102011);
+        assert_eq!(payload["type"], 0);
+        assert!(payload["timestamp"].as_u64().is_some());
+        assert!(payload.get("sid").is_none());
+        assert!(payload.get("data").is_none());
+        assert!(payload.get("url").is_none());
+        assert!(payload.get("file").is_none());
+    }
+}

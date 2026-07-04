@@ -11,8 +11,9 @@ normal control path.
 - `crates/enabot-sdk` - Enabot login, Mini session, command building, and sidecar transport orchestration.
 - `crates/enabot-cli` - command-line control tool.
 - `sidecars/native-rtm` - JSON-lines wrapper around Agora native RTM.
+- `sidecars/rtc-snapshot-native-macos` - default native macOS RTC sidecar that captures a JPEG from Agora RTC.
 - `docs/protocol.md` - protocol notes for login, session, and command messages.
-- `docs/native-transport.md` - notes on the native RTM sidecar approach.
+- `docs/native-transport.md` - notes on the native Agora sidecar approach.
 - `src/control` - older JS fallback harness kept as a known-good comparison path.
 
 ## Setup
@@ -65,6 +66,18 @@ cargo run -p enabot-cli -- turn-right --speed 40 --ms 350
 cargo run -p enabot-cli -- drive --ly 55 --rx 0 --ms 500
 cargo run -p enabot-cli -- stop
 ```
+
+Snapshot on macOS:
+
+```sh
+cargo run -p enabot-cli -- snapshot --out artifacts/snapshots/latest.jpg
+```
+
+The snapshot command sends the `102011` RTM trigger, then joins the Mini RTC
+channel and writes the current robot video frame as a JPEG. The default sidecar
+uses Agora's native macOS RTC SDK via SwiftPM, so it does not require Chrome.
+The first run downloads the pinned Agora binary frameworks and builds the native
+helper.
 
 ## Secrets
 
