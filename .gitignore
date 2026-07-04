@@ -6,6 +6,7 @@
 *.key
 secrets/
 credentials.json
+.enabot/
 
 # Reverse-engineering artifacts
 *.apk

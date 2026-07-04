@@ -19,6 +19,7 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Command {
     Login,
+    Robots,
     Session,
     Wiggle,
     Drive(DriveArgs),
@@ -65,6 +66,16 @@ async fn main() -> Result<()> {
                 serde_json::to_string_pretty(&json!({
                     "ok": true,
                     "cookieNames": login.cookie_names,
+                }))?
+            );
+        }
+        Command::Robots => {
+            let login = client.login().await?;
+            let robots = client.robots(&login).await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "robots": robots,
                 }))?
             );
         }

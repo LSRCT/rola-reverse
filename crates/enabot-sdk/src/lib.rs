@@ -5,6 +5,6 @@ pub mod config;
 pub mod robot;
 pub mod sidecar;
 
-pub use client::{EnabotClient, LoginSession, MiniSession};
+pub use client::{EnabotClient, LoginSession, MiniSession, RobotInfo};
 pub use config::Config;
 pub use robot::RolaMiniControl;

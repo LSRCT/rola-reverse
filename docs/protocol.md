@@ -22,8 +22,6 @@ These values belong in local `.env`:
 
 - `ENABOT_ACCOUNT`
 - `ENABOT_PASSWORD`
-- `ENABOT_DEVICE_ID`
-- `ENABOT_ROBOT_ID`
 - `ENABOT_APP_TOKEN`
 - `ENABOT_ACCESS_KEY_SECRET_S2`
 - `ENABOT_BODY_ENCRYPT_KEY_S2`
@@ -35,6 +33,8 @@ Optional/defaulted values:
 - `ENABOT_PHONE_AREA`
 - `ENABOT_LANGUAGE`
 - `ENABOT_ACCEPT_LANGUAGE`
+- `ENABOT_DEVICE_ID` - generated in `.enabot/device_id` when unset
+- `ENABOT_ROBOT_ID` - needed for control commands; discover with `enabot robots`
 
 ## Enabot Login
 

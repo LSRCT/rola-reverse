@@ -30,14 +30,14 @@ cp .env.example .env
 Required `.env` values today:
 
 - Enabot account credentials for an account that can access the robot.
-- A stable `ENABOT_DEVICE_ID` for the login payload.
-- `ENABOT_ROBOT_ID` for the already-paired ROLA Mini.
 - Reusable ROLA app constants used for request signing, body encryption, and
   Agora.
 
-Robot discovery is not wired into the CLI yet, so the robot id is currently a
-manual setup value. The next ergonomic step is an `enabot robots` command that
-lists account-bound robots and allows `ENABOT_ROBOT_ID=auto`.
+`ENABOT_DEVICE_ID` is optional. If it is left blank, the SDK generates a stable
+local client id in `.enabot/device_id`.
+
+Run `enabot robots` after filling those values to list account-bound robot ids.
+Set `ENABOT_ROBOT_ID` to the already-paired ROLA Mini you want to control.
 
 Install sidecar dependencies once:
 
@@ -56,6 +56,7 @@ cargo build
 ## Usage
 
 ```sh
+cargo run -p enabot-cli -- robots
 cargo run -p enabot-cli -- wiggle
 cargo run -p enabot-cli -- forward --speed 55 --ms 500
 cargo run -p enabot-cli -- backward --speed 55 --ms 500
