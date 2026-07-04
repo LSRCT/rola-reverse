@@ -12,6 +12,30 @@ const LOGIN_PATH = '/api/v1/s1/users/login/';
 const LOGIN_URL = `https://${HOST}${LOGIN_PATH}`;
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
+function parseEnvValue(value) {
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    try { return JSON.parse(trimmed); } catch (_) {}
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function loadDotEnv(filePath = path.join(ROOT, '.env')) {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const idx = trimmed.indexOf('=');
+    if (idx <= 0) continue;
+    const name = trimmed.slice(0, idx).trim();
+    if (process.env[name]) continue;
+    process.env[name] = parseEnvValue(trimmed.slice(idx + 1));
+  }
+}
+
 function need(name) {
   const value = process.env[name];
   if (!value) {
@@ -103,6 +127,8 @@ function cookieNames(setCookies) {
 }
 
 async function main() {
+  loadDotEnv();
+
   const account = need('ENABOT_ACCOUNT');
   const password = need('ENABOT_PASSWORD');
   const loginRegion = optional('ENABOT_LOGIN_REGION', 'GB');

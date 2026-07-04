@@ -1,6 +1,7 @@
 # Secrets / credentials — never commit device tokens, API keys, captured auth
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 secrets/
