@@ -32,10 +32,12 @@ env/
 
 # Node
 node_modules/
+.npm-cache/
 dist/
 build/
 target/
 .build/
+.clang-module-cache/
 
 # Media / stream dumps
 *.mp4

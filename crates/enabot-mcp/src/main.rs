@@ -33,6 +33,9 @@ struct Args {
     #[arg(long, default_value_t = 8788)]
     port: u16,
 
+    #[arg(long = "allowed-host", default_values_t = default_allowed_hosts())]
+    allowed_hosts: Vec<String>,
+
     #[arg(long, default_value = "sidecars/native-rtm/index.js")]
     sidecar: PathBuf,
 
@@ -150,7 +153,7 @@ async fn main() -> Result<()> {
             ))
         },
         LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+        StreamableHttpServerConfig::default().with_allowed_hosts(args.allowed_hosts),
     );
     let router = axum::Router::new().nest_service("/mcp", service);
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -163,6 +166,15 @@ async fn main() -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+fn default_allowed_hosts() -> Vec<String> {
+    vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+        "rola-mcp.alex-netsch.com".to_string(),
+    ]
 }
 
 #[tool_handler(router = self.tool_router)]

@@ -156,10 +156,7 @@ impl EnabotClient {
     }
 
     pub async fn mini_session(&self, login: &LoginSession) -> Result<MiniSession> {
-        let robot_id = self
-            .config
-            .robot_id
-            .context("missing ENABOT_ROBOT_ID; run `enabot robots` to list account-bound robots")?;
+        let robot_id = self.resolve_robot_id(login).await?;
         let body = MiniSessionRequest {
             require_online_status: true,
             robot_id,
@@ -214,6 +211,14 @@ impl EnabotClient {
         }
 
         Ok(robots)
+    }
+
+    async fn resolve_robot_id(&self, login: &LoginSession) -> Result<u64> {
+        let robots = self.robots(login).await?;
+        robots
+            .first()
+            .map(|robot| robot.robot_id)
+            .context("no account-bound robots found; pair a ROLA Mini in the app")
     }
 
     async fn get_api_data(&self, login: &LoginSession, url: &str) -> Result<Value> {

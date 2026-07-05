@@ -34,7 +34,9 @@ Optional/defaulted values:
 - `ENABOT_LANGUAGE`
 - `ENABOT_ACCEPT_LANGUAGE`
 - `ENABOT_DEVICE_ID` - generated in `.enabot/device_id` when unset
-- `ENABOT_ROBOT_ID` - needed for control commands; discover with `enabot robots`
+
+The SDK auto-selects the first account-bound robot returned by Enabot. Use
+`enabot robots` to inspect account-bound robot ids.
 
 ## Enabot Login
 

@@ -10,7 +10,6 @@ pub struct Config {
     pub account: String,
     pub password: String,
     pub device_id: String,
-    pub robot_id: Option<u64>,
     pub app_token: String,
     pub access_key_secret_s2: String,
     pub body_encrypt_key_s2: String,
@@ -29,17 +28,6 @@ impl Config {
             values.insert(key, value);
         }
 
-        let robot_id = optional(&values, "ENABOT_ROBOT_ID", "");
-        let robot_id = if robot_id.is_empty() {
-            None
-        } else {
-            Some(
-                robot_id
-                    .parse()
-                    .context("ENABOT_ROBOT_ID must be an integer")?,
-            )
-        };
-
         let device_id = optional(&values, "ENABOT_DEVICE_ID", "");
         let device_id = if device_id.is_empty() {
             load_or_create_device_id(Path::new(DEVICE_ID_FILE))?
@@ -51,7 +39,6 @@ impl Config {
             account: need(&values, "ENABOT_ACCOUNT")?,
             password: need(&values, "ENABOT_PASSWORD")?,
             device_id,
-            robot_id,
             app_token: need(&values, "ENABOT_APP_TOKEN")?,
             access_key_secret_s2: need(&values, "ENABOT_ACCESS_KEY_SECRET_S2")?,
             body_encrypt_key_s2: need(&values, "ENABOT_BODY_ENCRYPT_KEY_S2")?,

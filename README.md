@@ -37,8 +37,9 @@ Required `.env` values today:
 `ENABOT_DEVICE_ID` is optional. If it is left blank, the SDK generates a stable
 local client id in `.enabot/device_id`.
 
-Run `enabot robots` after filling those values to list account-bound robot ids.
-Set `ENABOT_ROBOT_ID` to the already-paired ROLA Mini you want to control.
+The SDK auto-selects the first account-bound robot returned by Enabot. Run
+`enabot robots` after filling those values if you want to inspect what is bound
+to the account.
 
 Install sidecar dependencies once:
 
@@ -97,6 +98,67 @@ http://127.0.0.1:8788/mcp
 Available tools mirror the CLI controls: `list_robots`, `status`, `drive`,
 `forward`, `backward`, `turn_left`, `turn_right`, `stop`, `wiggle`, and
 `snapshot`.
+
+### Robot changes
+
+The MCP host auto-selects the first robot bound to its configured Enabot
+account.
+
+If you remove this Mini and add a replacement, pair the new robot in the ROLA
+app, then restart `enabot-mcp`. You can inspect the account-bound robot list
+with:
+
+```sh
+cargo run -p enabot-cli -- robots
+```
+
+Remote MCP clients do not need to change as long as the public MCP URL stays the
+same.
+
+### Cloudflare Tunnel
+
+The MCP server should stay bound to localhost. To expose it through Cloudflare
+Tunnel, run the server locally and point the tunnel at `127.0.0.1:8788`:
+
+```yaml
+tunnel: rola-mcp
+credentials-file: /Users/alexAthome/.cloudflared/f141ef03-6221-4dfa-a19b-00412553fb23.json
+
+ingress:
+  - hostname: rola-mcp.alex-netsch.com
+    service: http://127.0.0.1:8788
+  - service: http_status:404
+```
+
+Run the tunnel with:
+
+```sh
+cloudflared tunnel --config ~/.cloudflared/rola-mcp.yml run rola-mcp
+```
+
+The public MCP endpoint is:
+
+```text
+https://rola-mcp.alex-netsch.com/mcp
+```
+
+### Codex client config
+
+Colleagues using Codex can add the hosted MCP server with:
+
+```sh
+codex mcp add rola-mcp --url https://rola-mcp.alex-netsch.com/mcp
+```
+
+That writes this config:
+
+```toml
+[mcp_servers.rola-mcp]
+url = "https://rola-mcp.alex-netsch.com/mcp"
+```
+
+They only need the public MCP URL. Do not share `.env`, Cloudflare tunnel
+credentials, Enabot credentials, app constants, captures, or generated tokens.
 
 ## Secrets
 
