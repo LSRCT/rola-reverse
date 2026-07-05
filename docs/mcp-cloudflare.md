@@ -1,87 +1,88 @@
-# MCP and Cloudflare exposure
+# MCP Hosting
 
-The repo contains:
-
-- `enabot-sdk`, which has the reusable robot control primitives.
-- `enabot-cli`, which wraps those primitives as local commands.
-- `enabot-mcp`, which exposes robot control over Streamable HTTP MCP.
-- native RTM and RTC sidecars used by both control and snapshots.
-
-## Current MCP server
-
-The workspace includes `crates/enabot-mcp`, a Streamable HTTP MCP server that
-depends on `enabot-sdk` and exposes this tool surface:
+`crates/enabot-mcp` exposes ROLA Mini control over Streamable HTTP MCP.
 
 - `list_robots` - list account-bound robots.
-- `status` - return the current Mini session summary.
-- `stop` - send an immediate stop command.
+- `status` - return the current Mini session.
+- `stop` - send an immediate stop.
 - `drive`, `forward`, `backward`, `turn_left`, `turn_right`, and `wiggle` -
-  bounded movement commands.
-- `snapshot` - slower command that writes a JPEG and returns metadata.
+  bounded movement.
+- `snapshot` - write a JPEG on the MCP host.
 
-Run it locally with:
+Run the server:
 
 ```sh
 cargo run -p enabot-mcp
 ```
 
-The default MCP endpoint is:
+Local endpoint:
 
 ```text
 http://127.0.0.1:8788/mcp
 ```
 
-For remote access through Cloudflare, keep the server bound to `127.0.0.1` and
-publish that local port through Cloudflare Tunnel. Require authentication before
-any movement tool is callable.
-
-Movement tools should keep the existing CLI safety limits: clamp speeds, reject
-long drive durations, and always send `stop` after a timed drive.
+The host auto-selects the first robot bound to the configured Enabot account. If
+you replace the robot, pair the new one in the ROLA app and restart
+`enabot-mcp`.
 
 ## Cloudflare Tunnel
 
-Use a named Cloudflare Tunnel for a machine that stays near the robot:
+Keep the MCP server bound to localhost and point Cloudflare Tunnel at
+`127.0.0.1:8788`.
 
 ```sh
 cloudflared tunnel login
 cloudflared tunnel create rola-mcp
-cloudflared tunnel route dns rola-mcp rola-mcp.example.com
+cloudflared tunnel route dns rola-mcp rola-mcp.alex-netsch.com
 ```
 
-Example `cloudflared` config:
+`~/.cloudflared/rola-mcp.yml`:
 
 ```yaml
 tunnel: rola-mcp
-credentials-file: /Users/alexAthome/.cloudflared/<tunnel-id>.json
+credentials-file: /Users/alexAthome/.cloudflared/f141ef03-6221-4dfa-a19b-00412553fb23.json
 
 ingress:
-  - hostname: rola-mcp.example.com
+  - hostname: rola-mcp.alex-netsch.com
     service: http://127.0.0.1:8788
   - service: http_status:404
 ```
 
-Run it with:
+Run the tunnel:
 
 ```sh
 cloudflared tunnel --config ~/.cloudflared/rola-mcp.yml run rola-mcp
 ```
 
-For persistence on macOS, install it as a launchd service after the tunnel works
-interactively:
+Public endpoint:
+
+```text
+https://rola-mcp.alex-netsch.com/mcp
+```
+
+## Codex Client
+
+Paste this into `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.rola-mcp]
+url = "https://rola-mcp.alex-netsch.com/mcp"
+```
+
+Or run:
+
+```sh
+codex mcp add rola-mcp --url https://rola-mcp.alex-netsch.com/mcp
+```
+
+Do not share `.env`, Cloudflare credentials, Enabot credentials, app constants,
+captures, or generated tokens.
+
+## Notes
+
+For persistence on macOS, install `cloudflared` as a launchd service after the
+tunnel works interactively:
 
 ```sh
 cloudflared service install
 ```
-
-## Security notes
-
-Do not expose raw unauthenticated robot control on the public Internet. Put the
-tunnel hostname behind Cloudflare Access or equivalent OAuth, and add a second
-server-side shared token check for non-browser MCP clients if needed.
-
-The local MCP HTTP server should:
-
-- bind to `127.0.0.1`, not `0.0.0.0`;
-- validate `Origin` on HTTP requests;
-- log movement and snapshot calls;
-- keep `.env`, captures, tunnel credentials, and generated tokens uncommitted.
