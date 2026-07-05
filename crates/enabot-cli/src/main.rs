@@ -1,6 +1,9 @@
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use enabot_sdk::{Config, EnabotClient, MiniSession, RolaMiniControl, VideoQuality};
+use enabot_sdk::{
+    Config, DEFAULT_LIVE_READY_TIMEOUT_MS, DEFAULT_LIVE_SETTLE_MS, EnabotClient, LiveReadyStatus,
+    MiniSession, RolaMiniControl, VideoQuality,
+};
 use serde_json::json;
 use std::io::Write;
 use std::path::PathBuf;
@@ -19,6 +22,12 @@ struct Args {
 
     #[arg(long, default_value = "sidecars/rtc-snapshot-native-macos")]
     rtc_sidecar: PathBuf,
+
+    #[arg(long, default_value_t = DEFAULT_LIVE_READY_TIMEOUT_MS, global = true)]
+    live_ready_timeout_ms: u64,
+
+    #[arg(long, default_value_t = DEFAULT_LIVE_SETTLE_MS, global = true)]
+    live_settle_ms: u64,
 }
 
 #[derive(Debug, Subcommand)]
@@ -75,6 +84,12 @@ struct SnapshotArgs {
     codec: String,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct LiveReadyConfig {
+    timeout: Duration,
+    min_settle: Duration,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum SnapshotQuality {
     Fluent,
@@ -97,6 +112,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let sidecar = args.sidecar.clone();
     let rtc_sidecar = args.rtc_sidecar.clone();
+    let live_ready = checked_live_ready_config(args.live_ready_timeout_ms, args.live_settle_ms)?;
     let config = Config::load()?;
     let client = EnabotClient::new(config)?;
 
@@ -131,13 +147,13 @@ async fn main() -> Result<()> {
         Command::Wiggle => {
             let session = fresh_session(&client).await?;
             ensure_online(&session)?;
-            run_wiggle(&client, &sidecar, &session).await?;
+            run_wiggle(&client, &sidecar, &session, live_ready).await?;
         }
         Command::Drive(drive) => {
             let session = fresh_session(&client).await?;
             ensure_online(&session)?;
             run_drive(
-                &client, &sidecar, &session, drive.ly, drive.rx, drive.ms, "drive",
+                &client, &sidecar, &session, live_ready, drive.ly, drive.rx, drive.ms, "drive",
             )
             .await?;
         }
@@ -148,6 +164,7 @@ async fn main() -> Result<()> {
                 &client,
                 &sidecar,
                 &session,
+                live_ready,
                 speed(drive.speed),
                 0,
                 drive.ms,
@@ -162,6 +179,7 @@ async fn main() -> Result<()> {
                 &client,
                 &sidecar,
                 &session,
+                live_ready,
                 -speed(drive.speed),
                 0,
                 drive.ms,
@@ -176,6 +194,7 @@ async fn main() -> Result<()> {
                 &client,
                 &sidecar,
                 &session,
+                live_ready,
                 0,
                 -speed(drive.speed),
                 drive.ms,
@@ -190,6 +209,7 @@ async fn main() -> Result<()> {
                 &client,
                 &sidecar,
                 &session,
+                live_ready,
                 0,
                 speed(drive.speed),
                 drive.ms,
@@ -205,7 +225,15 @@ async fn main() -> Result<()> {
         Command::Snapshot(snapshot) => {
             let session = fresh_session(&client).await?;
             ensure_online(&session)?;
-            run_snapshot(&client, &sidecar, &rtc_sidecar, &session, &snapshot).await?;
+            run_snapshot(
+                &client,
+                &sidecar,
+                &rtc_sidecar,
+                &session,
+                &snapshot,
+                live_ready,
+            )
+            .await?;
         }
     }
 
@@ -228,6 +256,7 @@ async fn run_wiggle(
     client: &EnabotClient,
     sidecar_path: &PathBuf,
     session: &MiniSession,
+    live_ready: LiveReadyConfig,
 ) -> Result<()> {
     let mut robot = RolaMiniControl::connect(client, sidecar_path, session.clone()).await?;
     println!(
@@ -235,9 +264,7 @@ async fn run_wiggle(
         serde_json::to_string(&json!({"step": "rtm_login_ok"}))?
     );
 
-    robot.enter_live().await?;
-    print_send_ok("enter_live")?;
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    enter_live_ready(&mut robot, live_ready).await?;
 
     robot.drive_for(55, 0, Duration::from_millis(450)).await?;
     print_send_ok("nudge_forward")?;
@@ -293,6 +320,7 @@ async fn run_snapshot(
     rtc_sidecar_path: &PathBuf,
     session: &MiniSession,
     args: &SnapshotArgs,
+    live_ready: LiveReadyConfig,
 ) -> Result<()> {
     let mut robot = RolaMiniControl::connect(client, sidecar_path, session.clone()).await?;
     println!(
@@ -300,9 +328,7 @@ async fn run_snapshot(
         serde_json::to_string(&json!({"step": "rtm_login_ok"}))?
     );
 
-    robot.enter_live().await?;
-    print_send_ok("enter_live")?;
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    enter_live_ready(&mut robot, live_ready).await?;
 
     apply_snapshot_quality(&mut robot, args).await?;
 
@@ -310,9 +336,15 @@ async fn run_snapshot(
     print_send_ok("snapshot_trigger")?;
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let capture =
-        run_rtc_snapshot_capture_with_retries(&mut robot, rtc_sidecar_path, client, session, args)
-            .await?;
+    let capture = run_rtc_snapshot_capture_with_retries(
+        &mut robot,
+        rtc_sidecar_path,
+        client,
+        session,
+        args,
+        live_ready,
+    )
+    .await?;
 
     robot.collect_for(Duration::from_millis(1200)).await?;
     let events = robot.take_events();
@@ -329,6 +361,15 @@ async fn run_snapshot(
         }))?
     );
     Ok(())
+}
+
+async fn enter_live_ready(robot: &mut RolaMiniControl, live_ready: LiveReadyConfig) -> Result<()> {
+    robot.enter_live().await?;
+    print_send_ok("enter_live")?;
+    let status = robot
+        .wait_for_live_control_ready(live_ready.timeout, live_ready.min_settle)
+        .await?;
+    print_live_ready(&status)
 }
 
 async fn apply_snapshot_quality(robot: &mut RolaMiniControl, args: &SnapshotArgs) -> Result<()> {
@@ -349,6 +390,7 @@ async fn run_rtc_snapshot_capture_with_retries(
     client: &EnabotClient,
     session: &MiniSession,
     args: &SnapshotArgs,
+    live_ready: LiveReadyConfig,
 ) -> Result<serde_json::Value> {
     let mut last_error = None;
 
@@ -361,8 +403,7 @@ async fn run_rtc_snapshot_capture_with_retries(
                     "attempt": attempt + 1,
                 }))?
             );
-            robot.enter_live().await?;
-            tokio::time::sleep(Duration::from_millis(800)).await;
+            enter_live_ready(robot, live_ready).await?;
             apply_snapshot_quality(robot, args).await?;
             robot.snapshot_trigger().await?;
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -385,6 +426,7 @@ async fn run_drive(
     client: &EnabotClient,
     sidecar_path: &PathBuf,
     session: &MiniSession,
+    live_ready: LiveReadyConfig,
     ly: i64,
     rx: i64,
     ms: u64,
@@ -396,9 +438,7 @@ async fn run_drive(
         "{}",
         serde_json::to_string(&json!({"step": "rtm_login_ok"}))?
     );
-    robot.enter_live().await?;
-    print_send_ok("enter_live")?;
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    enter_live_ready(&mut robot, live_ready).await?;
 
     robot.drive_for(ly, rx, duration).await?;
     print_send_ok(action)?;
@@ -505,6 +545,19 @@ fn print_send_ok(action: &str) -> Result<()> {
     Ok(())
 }
 
+fn print_live_ready(status: &LiveReadyStatus) -> Result<()> {
+    println!(
+        "{}",
+        serde_json::to_string(&json!({
+            "step": "live_ready",
+            "confirmed": status.confirmed,
+            "eventId": status.event_id,
+            "elapsedMs": status.elapsed.as_millis(),
+        }))?
+    );
+    Ok(())
+}
+
 fn speed(speed: i64) -> i64 {
     speed.abs().clamp(0, 100)
 }
@@ -514,6 +567,19 @@ fn checked_duration(ms: u64) -> Result<Duration> {
         bail!("refusing to drive for more than 10000ms in one command");
     }
     Ok(Duration::from_millis(ms))
+}
+
+fn checked_live_ready_config(timeout_ms: u64, settle_ms: u64) -> Result<LiveReadyConfig> {
+    if timeout_ms > 10_000 {
+        bail!("refusing to wait more than 10000ms for live-ready confirmation");
+    }
+    if settle_ms > 10_000 {
+        bail!("refusing to settle live mode for more than 10000ms");
+    }
+    Ok(LiveReadyConfig {
+        timeout: Duration::from_millis(timeout_ms),
+        min_settle: Duration::from_millis(settle_ms),
+    })
 }
 
 fn checked_snapshot_wait(ms: u64) -> Result<u64> {

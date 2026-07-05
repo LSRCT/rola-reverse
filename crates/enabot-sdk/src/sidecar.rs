@@ -89,6 +89,48 @@ impl NativeRtmSidecar {
         Ok(())
     }
 
+    pub async fn collect_until<F>(
+        &mut self,
+        duration: Duration,
+        mut predicate: F,
+    ) -> Result<Option<Value>>
+    where
+        F: FnMut(&Value) -> bool,
+    {
+        if let Some(value) = self.events.iter().find(|event| predicate(event)).cloned() {
+            return Ok(Some(value));
+        }
+
+        let end = tokio::time::Instant::now() + duration;
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= end {
+                break;
+            }
+            let remaining = end - now;
+            match tokio::time::timeout(
+                remaining.min(Duration::from_millis(250)),
+                self.stdout.next_line(),
+            )
+            .await
+            {
+                Ok(Ok(Some(line))) => {
+                    if let Some(value) = self.parse_line(&line) {
+                        let matched = predicate(&value);
+                        self.events.push(value.clone());
+                        if matched {
+                            return Ok(Some(value));
+                        }
+                    }
+                }
+                Ok(Ok(None)) => bail!("native RTM sidecar exited"),
+                Ok(Err(err)) => return Err(err).context("reading sidecar event"),
+                Err(_) => {}
+            }
+        }
+        Ok(None)
+    }
+
     pub fn take_events(&mut self) -> Vec<Value> {
         std::mem::take(&mut self.events)
     }
