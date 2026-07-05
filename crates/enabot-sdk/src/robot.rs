@@ -1,5 +1,5 @@
 use crate::client::{EnabotClient, MiniSession};
-use crate::commands;
+use crate::commands::{self, VideoQuality};
 use crate::sidecar::NativeRtmSidecar;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
@@ -58,6 +58,11 @@ impl RolaMiniControl {
         self.send_payload(payload).await
     }
 
+    pub async fn set_video_quality(&mut self, quality: VideoQuality) -> Result<()> {
+        let payload = commands::video_quality(&self.session, quality);
+        self.send_payload(payload).await
+    }
+
     pub async fn drive_for(&mut self, ly: i64, rx: i64, duration: Duration) -> Result<()> {
         self.drive(ly, rx).await?;
         tokio::time::sleep(duration).await;
@@ -102,5 +107,5 @@ impl RolaMiniControl {
 
 fn retryable_send_error(err: &anyhow::Error) -> bool {
     let text = format!("{err:#}").to_ascii_lowercase();
-    text.contains("-11033") || text.contains("offline")
+    text.contains("-11033") || text.contains("offline") || text.contains("request timed out")
 }

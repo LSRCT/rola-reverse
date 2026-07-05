@@ -71,13 +71,14 @@ Snapshot on macOS:
 
 ```sh
 cargo run -p enabot-cli -- snapshot --out artifacts/snapshots/latest.jpg
+cargo run -p enabot-cli -- snapshot --quality hd --out artifacts/snapshots/hd.jpg
 ```
 
 The snapshot command sends the `102011` RTM trigger, then joins the Mini RTC
 channel and writes the current robot video frame as a JPEG. The default sidecar
 uses Agora's native macOS RTC SDK via SwiftPM, so it does not require Chrome.
 The first run downloads the pinned Agora binary frameworks and builds the native
-helper.
+helper. `--quality` can request `fluent`, `hd`, or `original` before capturing.
 
 ## Secrets
 
