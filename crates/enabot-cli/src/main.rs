@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
-use enabot_sdk::{Config, EnabotClient, MiniSession, RolaMiniControl};
+use clap::{Parser, Subcommand, ValueEnum};
+use enabot_sdk::{Config, EnabotClient, MiniSession, RolaMiniControl, VideoQuality};
 use serde_json::json;
 use std::io::Write;
 use std::path::PathBuf;
@@ -62,6 +62,9 @@ struct SnapshotArgs {
     #[arg(long, default_value = "artifacts/snapshots/latest.jpg")]
     out: PathBuf,
 
+    #[arg(long)]
+    quality: Option<SnapshotQuality>,
+
     #[arg(long, default_value_t = 30_000)]
     wait_ms: u64,
 
@@ -70,6 +73,23 @@ struct SnapshotArgs {
 
     #[arg(long, default_value = "h264")]
     codec: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SnapshotQuality {
+    Fluent,
+    Hd,
+    Original,
+}
+
+impl From<SnapshotQuality> for VideoQuality {
+    fn from(value: SnapshotQuality) -> Self {
+        match value {
+            SnapshotQuality::Fluent => Self::Fluent,
+            SnapshotQuality::Hd => Self::Hd,
+            SnapshotQuality::Original => Self::Original,
+        }
+    }
 }
 
 #[tokio::main]
@@ -284,6 +304,8 @@ async fn run_snapshot(
     print_send_ok("enter_live")?;
     tokio::time::sleep(Duration::from_millis(800)).await;
 
+    apply_snapshot_quality(&mut robot, args).await?;
+
     robot.snapshot_trigger().await?;
     print_send_ok("snapshot_trigger")?;
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -309,6 +331,18 @@ async fn run_snapshot(
     Ok(())
 }
 
+async fn apply_snapshot_quality(robot: &mut RolaMiniControl, args: &SnapshotArgs) -> Result<()> {
+    let Some(quality) = args.quality.map(VideoQuality::from) else {
+        return Ok(());
+    };
+
+    robot.set_video_quality(quality).await?;
+    let action = format!("video_quality_{}", quality.name());
+    print_send_ok(&action)?;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    Ok(())
+}
+
 async fn run_rtc_snapshot_capture_with_retries(
     robot: &mut RolaMiniControl,
     rtc_sidecar_path: &PathBuf,
@@ -329,6 +363,7 @@ async fn run_rtc_snapshot_capture_with_retries(
             );
             robot.enter_live().await?;
             tokio::time::sleep(Duration::from_millis(800)).await;
+            apply_snapshot_quality(robot, args).await?;
             robot.snapshot_trigger().await?;
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -443,6 +478,7 @@ fn snapshot_sidecar_command(sidecar_path: &PathBuf) -> Result<ProcessCommand> {
         let mut command = ProcessCommand::new("swift");
         command
             .arg("run")
+            .arg("--quiet")
             .arg("--package-path")
             .arg(sidecar_path)
             .arg("RtcSnapshotNativeMac");
