@@ -80,6 +80,24 @@ uses Agora's native macOS RTC SDK via SwiftPM, so it does not require Chrome.
 The first run downloads the pinned Agora binary frameworks and builds the native
 helper. `--quality` can request `fluent`, `hd`, or `original` before capturing.
 
+## MCP server
+
+Run a local Streamable HTTP MCP server:
+
+```sh
+cargo run -p enabot-mcp
+```
+
+The endpoint is:
+
+```text
+http://127.0.0.1:8788/mcp
+```
+
+Available tools mirror the CLI controls: `list_robots`, `status`, `drive`,
+`forward`, `backward`, `turn_left`, `turn_right`, `stop`, `wiggle`, and
+`snapshot`.
+
 ## Secrets
 
 Never commit `.env`, captures, APKs, cookies, tokens, or extracted app secrets. The

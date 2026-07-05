@@ -1,0 +1,23 @@
+[package]
+name = "enabot-mcp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "enabot-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = "0.8.7"
+clap = { workspace = true, features = ["derive"] }
+enabot-sdk = { path = "../enabot-sdk" }
+rmcp = { workspace = true, features = ["transport-streamable-http-server"] }
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
