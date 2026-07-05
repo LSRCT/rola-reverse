@@ -45,6 +45,7 @@ frames/
 
 # OS / editor
 .DS_Store
+.codex/
 .idea/
 .vscode/
 *.swp
