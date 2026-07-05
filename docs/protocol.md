@@ -121,13 +121,13 @@ Enter live:
 }
 ```
 
-Movement:
+Forward movement:
 
 ```json
 {
   "id": 101007,
   "sid": "<sid>",
-  "data": { "lx": 0, "ly": 55, "rx": 0, "ry": 0, "buttons": 1 },
+  "data": { "lx": 0, "ly": -55, "rx": 0, "ry": 0, "buttons": 1 },
   "type": 0,
   "timestamp": 1700000000500
 }

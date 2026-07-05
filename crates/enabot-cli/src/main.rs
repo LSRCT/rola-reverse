@@ -165,7 +165,7 @@ async fn main() -> Result<()> {
                 &sidecar,
                 &session,
                 live_ready,
-                speed(drive.speed),
+                forward_ly(drive.speed),
                 0,
                 drive.ms,
                 "forward",
@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
                 &sidecar,
                 &session,
                 live_ready,
-                -speed(drive.speed),
+                backward_ly(drive.speed),
                 0,
                 drive.ms,
                 "backward",
@@ -266,12 +266,16 @@ async fn run_wiggle(
 
     enter_live_ready(&mut robot, live_ready).await?;
 
-    robot.drive_for(55, 0, Duration::from_millis(450)).await?;
+    robot
+        .drive_for(forward_ly(55), 0, Duration::from_millis(450))
+        .await?;
     print_send_ok("nudge_forward")?;
     print_send_ok("stop")?;
     tokio::time::sleep(Duration::from_millis(350)).await;
 
-    robot.drive_for(-55, 0, Duration::from_millis(450)).await?;
+    robot
+        .drive_for(backward_ly(55), 0, Duration::from_millis(450))
+        .await?;
     print_send_ok("nudge_back")?;
     print_send_ok("stop")?;
     tokio::time::sleep(Duration::from_millis(350)).await;
@@ -560,6 +564,14 @@ fn print_live_ready(status: &LiveReadyStatus) -> Result<()> {
 
 fn speed(speed: i64) -> i64 {
     speed.abs().clamp(0, 100)
+}
+
+fn forward_ly(value: i64) -> i64 {
+    -speed(value)
+}
+
+fn backward_ly(value: i64) -> i64 {
+    speed(value)
 }
 
 fn checked_duration(ms: u64) -> Result<Duration> {
