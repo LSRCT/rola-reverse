@@ -111,8 +111,9 @@ impl NativeRtmSidecar {
                 .context("reading native RTM sidecar response")?
                 .context("native RTM sidecar exited before responding")?;
 
-            let value: Value = serde_json::from_str(&line)
-                .with_context(|| format!("sidecar emitted non-JSON line: {line}"))?;
+            let Some(value) = self.parse_line(&line) else {
+                continue;
+            };
             match value.get("type").and_then(Value::as_str) {
                 Some("event") => self.events.push(value),
                 Some("response") if value.get("id").and_then(Value::as_u64) == Some(id) => {
@@ -132,10 +133,24 @@ impl NativeRtmSidecar {
     }
 
     fn handle_line_without_response(&mut self, line: &str) -> Result<()> {
-        let value: Value = serde_json::from_str(line)
-            .with_context(|| format!("sidecar emitted non-JSON line: {line}"))?;
-        self.events.push(value);
+        if let Some(value) = self.parse_line(line) {
+            self.events.push(value);
+        }
         Ok(())
+    }
+
+    fn parse_line(&mut self, line: &str) -> Option<Value> {
+        match serde_json::from_str(line) {
+            Ok(value) => Some(value),
+            Err(_) => {
+                self.events.push(json!({
+                    "type": "event",
+                    "event": "sidecar_log",
+                    "line": line,
+                }));
+                None
+            }
+        }
     }
 }
 

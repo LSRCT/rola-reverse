@@ -104,6 +104,8 @@ Known command ids:
 - `101003` - enter live/control session.
 - `101005` - heartbeat/state.
 - `101007` - movement/joystick.
+- `102055` - set live video quality. The app labels values as Fluent (`1`),
+  HD (`2`), hidden Super (`3`), and Original (`4`).
 - `102011` - snapshot request. The robot accepts the trigger, but the useful
   image path is RTC frame capture, not an RTM image response.
 
@@ -148,6 +150,20 @@ Robot replies observed:
 - `101004` - device info/status.
 - `101006` - state acknowledgement.
 - `101026` - battery, storage, Wi-Fi/status heartbeat.
+- `102056` - set-video-quality acknowledgement. `data.status` was `0` and
+  `data.videoQuality` echoed the requested value in live tests.
+
+Set live video quality:
+
+```json
+{
+  "id": 102055,
+  "sid": "<sid>",
+  "data": { "videoQuality": 2 },
+  "type": 0,
+  "timestamp": 1700000001500
+}
+```
 
 ## Snapshot
 
@@ -156,17 +172,23 @@ The practical phone-free snapshot path is:
 1. Log in and request a fresh Mini session.
 2. Connect to RTM with `app_rtm_uid` / `app_rtm_token`.
 3. Send `101003` enter-live to `mini_rtm_uid`.
-4. Send `102011` snapshot trigger to `mini_rtm_uid`.
-5. Join the Agora RTC channel with `app_rtc_uid`, `app_rtc_token`, and `rtc_channel`.
-6. Subscribe to the robot video publisher (`mini_rtc_uid`).
-7. Capture the current remote video frame and write it as JPEG.
+4. Optionally send `102055` set-video-quality to `mini_rtm_uid`.
+5. Send `102011` snapshot trigger to `mini_rtm_uid`.
+6. Join the Agora RTC channel with `app_rtc_uid`, `app_rtc_token`, and `rtc_channel`.
+7. Subscribe to the robot video publisher (`mini_rtc_uid`).
+8. Capture the current remote video frame and write it as JPEG.
 
-Live proof:
+Live proof from July 5, 2026:
 
 - RTC channel: `mini_us_prod_<robot_id>`.
 - App RTC uid: numeric `app_rtc_uid`.
 - Robot video publisher: numeric `mini_rtc_uid`.
-- Captured frame size observed: `2304x1296`.
+- `102055` with `videoQuality: 1` returned `102056` with `videoQuality: 1`
+  and captured `640x360`.
+- `102055` with `videoQuality: 2` returned `102056` with `videoQuality: 2`
+  and captured `1280x720`.
+- `102055` with `videoQuality: 4` returned `102056` with `videoQuality: 4`
+  and captured `2304x1296`.
 - No image bytes or download URL were observed over RTM after `102011`.
 
 The preferred implementation is the native macOS RTC sidecar. It uses Agora's
