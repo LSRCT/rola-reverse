@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 axum = "0.8.7"
+base64 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 enabot-sdk = { path = "../enabot-sdk" }
 rmcp = { workspace = true, features = ["transport-streamable-http-server"] }

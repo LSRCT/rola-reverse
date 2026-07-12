@@ -7,7 +7,7 @@
 - `stop` - send an immediate stop.
 - `drive`, `forward`, `backward`, `turn_left`, `turn_right`, and `wiggle` -
   bounded movement.
-- `snapshot` - write a JPEG on the MCP host.
+- `snapshot` - return a JPEG image to the MCP caller.
 
 Run the server:
 

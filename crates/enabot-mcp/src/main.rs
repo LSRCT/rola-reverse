@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use clap::Parser;
 use enabot_sdk::{
     Config, DEFAULT_LIVE_READY_TIMEOUT_MS, DEFAULT_LIVE_SETTLE_MS, EnabotClient, LiveReadyStatus,
@@ -7,7 +8,7 @@ use enabot_sdk::{
 use rmcp::{
     Json, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{Implementation, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo},
     schemars::JsonSchema,
     tool, tool_handler, tool_router,
     transport::streamable_http_server::{
@@ -20,7 +21,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::{Command as ProcessCommand, Stdio};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Parser)]
@@ -83,8 +84,6 @@ struct TimedSpeedRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SnapshotRequest {
-    #[schemars(description = "Output JPEG path on the MCP host")]
-    out: Option<PathBuf>,
     #[schemars(description = "Snapshot video quality: fluent, hd, or original")]
     quality: Option<SnapshotQuality>,
     #[schemars(description = "Maximum wait for a frame in milliseconds")]
@@ -337,15 +336,15 @@ impl EnabotMcp {
         .await
     }
 
-    #[tool(description = "Capture a robot snapshot to a JPEG on the MCP host")]
+    #[tool(description = "Capture a robot snapshot and return it as an image")]
     async fn snapshot(
         &self,
         Parameters(req): Parameters<SnapshotRequest>,
-    ) -> Result<Json<ToolOutput>, String> {
+    ) -> Result<CallToolResult, String> {
+        let out = snapshot_temp_path().map_err(|err| format!("{err:#}"))?;
+        let cleanup = TempCapture::new(out.clone());
         let args = SnapshotArgs {
-            out: req
-                .out
-                .unwrap_or_else(|| PathBuf::from("artifacts/snapshots/latest.jpg")),
+            out,
             quality: req.quality,
             wait_ms: req.wait_ms.unwrap_or(30_000),
             rtc_mode: req.rtc_mode.unwrap_or_else(|| "rtc".to_string()),
@@ -353,11 +352,24 @@ impl EnabotMcp {
         };
         let live_ready = self.live_ready;
 
-        self.run_json(|client, sidecar, rtc_sidecar| async move {
-            let session = fresh_session(&client).await?;
-            run_snapshot(&client, &sidecar, &rtc_sidecar, &session, &args, live_ready).await
-        })
+        let config = Config::load().map_err(|err| format!("{err:#}"))?;
+        let client = EnabotClient::new(config).map_err(|err| format!("{err:#}"))?;
+        let session = fresh_session(&client)
+            .await
+            .map_err(|err| format!("{err:#}"))?;
+        let metadata = run_snapshot(
+            &client,
+            &self.sidecar,
+            &self.rtc_sidecar,
+            &session,
+            &args,
+            live_ready,
+        )
         .await
+        .map_err(|err| format!("{err:#}"))?;
+        let result =
+            snapshot_tool_result(cleanup.path(), metadata).map_err(|err| format!("{err:#}"))?;
+        Ok(result)
     }
 
     async fn run_json<F, Fut>(&self, f: F) -> Result<Json<ToolOutput>, String>
@@ -372,6 +384,47 @@ impl EnabotMcp {
             .map(|result| Json(ToolOutput { result }))
             .map_err(|err| format!("{err:#}"))
     }
+}
+
+struct TempCapture {
+    path: PathBuf,
+}
+
+impl TempCapture {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    fn path(&self) -> &PathBuf {
+        &self.path
+    }
+}
+
+impl Drop for TempCapture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn snapshot_temp_path() -> Result<PathBuf> {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before Unix epoch")?
+        .as_nanos();
+    Ok(std::env::temp_dir().join(format!(
+        "enabot-mcp-snapshot-{}-{nonce}.jpg",
+        std::process::id()
+    )))
+}
+
+fn snapshot_tool_result(path: &PathBuf, metadata: Value) -> Result<CallToolResult> {
+    let jpeg = std::fs::read(path)
+        .with_context(|| format!("reading captured snapshot {}", path.display()))?;
+    let encoded = BASE64_STANDARD.encode(jpeg);
+    Ok(CallToolResult::success(vec![
+        ContentBlock::image(encoded, "image/jpeg"),
+        ContentBlock::text(metadata.to_string()),
+    ]))
 }
 
 async fn fresh_session(client: &EnabotClient) -> Result<MiniSession> {
@@ -502,7 +555,7 @@ async fn run_snapshot(
 
     robot.snapshot_trigger().await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let capture = run_rtc_snapshot_capture_with_retries(
+    let mut capture = run_rtc_snapshot_capture_with_retries(
         &mut robot,
         rtc_sidecar_path,
         client,
@@ -511,6 +564,9 @@ async fn run_snapshot(
         live_ready,
     )
     .await?;
+    if let Some(capture) = capture.as_object_mut() {
+        capture.remove("out");
+    }
 
     robot.collect_for(Duration::from_millis(1200)).await?;
     let events = robot.take_events();
@@ -518,7 +574,6 @@ async fn run_snapshot(
 
     Ok(json!({
         "step": "snapshot_done",
-        "out": args.out,
         "quality": quality,
         "liveReady": live_ready_summary(&live_ready_status),
         "capture": capture,
@@ -696,4 +751,35 @@ fn summarize_events(events: &[Value]) -> Vec<Value> {
         })
         .take(12)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_result_contains_jpeg_and_metadata() -> Result<()> {
+        let path = snapshot_temp_path()?;
+        let jpeg = [0xff, 0xd8, 0xff, 0xd9];
+        std::fs::write(&path, jpeg)?;
+        let cleanup = TempCapture::new(path.clone());
+
+        let result = snapshot_tool_result(cleanup.path(), json!({ "step": "snapshot_done" }))?;
+
+        assert_eq!(result.content.len(), 2);
+        let ContentBlock::Image(image) = &result.content[0] else {
+            panic!("first content block should be an image");
+        };
+        assert_eq!(image.mime_type, "image/jpeg");
+        assert_eq!(BASE64_STANDARD.decode(&image.data)?, jpeg);
+
+        let ContentBlock::Text(metadata) = &result.content[1] else {
+            panic!("second content block should be metadata text");
+        };
+        assert!(metadata.text.contains("snapshot_done"));
+
+        drop(cleanup);
+        assert!(!path.exists());
+        Ok(())
+    }
 }
